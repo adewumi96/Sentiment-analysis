@@ -1,0 +1,226 @@
+---
+title: "MA331-Report: 2212220"
+subtitle: "TED Talks by Speaker Nina Tandon and Speaker Erik Brynjolfsson"
+author: "Soliu Kafayat"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dsEssex) # load the required packages
+library(tidytext)   # to use %>%
+library(tidyverse)   # load the required packages
+library(ggplot2)
+library(dplyr)
+library(DiagrammeR)
+library(ggrepel)
+data(ted_talks)
+```
+
+
+
+
+## Intoduction
+The purpose of this analysis is to explore the TED Talks dataset and gain insights into the talks given by two specific speakers: Nina Tandon who is a biomedical engineer,she is also the CEO and Co-Founder of Epi-Bone  and Erik Brynjolfsson is an American academic, inventor and author.Nina Tandon's presentation titled "Caring for engineered tissue" was posted in 2011 while Erik brynjolfsson's presentation titled "The key to growth?Race with machines" was posted in 2013. In this report, I will use various text analysis techniques for data exploration and result visualization to provide insight into the lexical choices of these speakers and the association between sentiment and the speaker's talk.
+
+To achieve this, I will use R and several R libraries such as dsEssex, tidy text, ggplot2, dplyr, and ggrepel. I will begin by loading and cleaning the dataset, tokenizing and removing stop words. Next, I will create visualizations of the most common words used by each speaker and their sentiment, and explore the relationship between sentiment and the speaker's talk.
+
+The findings of this analysis will provide insight into the communication styles and topics of Nina Tandon and Erik Brynjolfsson, and will contribute to a better understanding of the TED Talks dataset.
+
+## Methodology
+start -> load_packages -> load_dataset -> filter_dataset -> tokenize_and_clean -> 
+calculate_word_frequency -> visualize_top_words -> perform_sentiment_analysis -> 
+visualize_sentiment_scores -> calculate_sentiment_counts -> calculate_odds_ratio -> 
+visualize_odds_ratio -> perform_association_analysis -> visualize_association -> end
+```{r fig.height=3}
+library(DiagrammeR)
+
+grViz("
+  digraph {
+    rankdir = LR
+    node [shape = rectangle, style = filled, color = lightblue]
+    subgraph cluster_0 {
+      label = 'Data Preparation'
+      node [color = white]
+      get_data -> select_speakers -> tokenize_text -> clean_text -> get_stopwords -> count_words -> plot_top_words
+      select_speakers -> clean_speakers -> nrc_analysis -> plot_sentiment_scores
+    }
+    subgraph cluster_1 {
+      label = 'Sentiment Analysis'
+      node [color = white]
+      count_sentiment -> compute_odds_ratio -> plot_odds_ratio
+      nrc_analysis -> count_sentiment
+      nrc_analysis -> plot_sentiment_speaker
+    }
+    get_data [label = 'Load Data']
+    select_speakers [label = 'Filter Speakers']
+    tokenize_text [label = 'Tokenize Text']
+    clean_text [label = 'Clean Text']
+    get_stopwords [label = 'Get Stopwords']
+    count_words [label = 'Count Words']
+    plot_top_words [label = 'Plot Top Words']
+    clean_speakers [label = 'Clean Speakers']
+    nrc_analysis [label = 'NRC Analysis']
+    count_sentiment [label = 'Count Sentiment']
+    compute_odds_ratio [label = 'Compute Odds Ratio']
+    plot_odds_ratio [label = 'Plot Odds Ratio']
+    plot_sentiment_scores [label = 'Plot Sentiment Scores']
+    plot_sentiment_speaker [label = 'Plot Sentiment by Speaker']
+  }
+")
+
+```
+
+## Results
+```{r}
+my_speakers <- ted_talks %>% 
+  filter(speaker %in% c('Nina Tandon', 'Erik Brynjolfsson'))
+```
+
+```{r}
+tidy_talks <- my_speakers %>% 
+  unnest_tokens(word, text)
+```
+```{r include=FALSE}
+ted_talks_nonstop <- tidy_talks %>%
+  anti_join(get_stopwords())
+```
+
+visualize 20 most frequent word from the speakers words
+```{r fig.height=5, fig.show='hold', fig.width=5, out.width="40%"}
+Tandon_words <- ted_talks_nonstop %>%  #first speaker       
+  filter(speaker == 'Nina Tandon') %>% 
+  count(speaker, word, sort = TRUE)
+
+Tandon_words %>% slice_max(n, n = 25) %>% mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col() + ggplot2::ggtitle('Nina Tandon')
+
+
+Brynjolfsson_words <- ted_talks_nonstop %>%   #second speaker
+  filter(speaker == "Erik Brynjolfsson") %>% 
+  count(speaker, word, sort = TRUE)
+
+Brynjolfsson_words %>% 
+  slice_max(n, n = 25) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) + geom_col() +
+  ggplot2::ggtitle("Erik Brynjolfsson")
+```
+
+
+Nina Tandon presentation was about cell and cells happens to be the most 
+repeated word, Other words such as incubators,microscope, 
+plate which are all use to grow cells.
+
+Erik Brynjolfssn talks basically on growth and machine is the most repeated 
+word and we have other words like mind, brain,ideas which are all very 
+important in technology growth.
+
+visualize the relationship between the first and second speaker using ggrepel
+library
+```{r}
+bind_rows(Tandon_words, Brynjolfsson_words) %>%
+  group_by(word) %>%
+  filter(sum(n) > 10) %>%
+  ungroup() %>%
+  pivot_wider(names_from = "speaker", values_from = "n", values_fill = 0) %>%
+  ggplot(aes(`Erik Brynjolfsson`, `Nina Tandon`)) +
+  geom_abline(color = "black", linewidth = 1.2, alpha = 0.75, lty = 3) +
+  geom_text_repel(aes(label = word), max.overlaps = 15) +
+  coord_fixed()
+
+```
+
+Their are no common words between the two speakers both they both made use of both adverbs and adjectives. 
+```{r}
+# Bind the two data frames of my speakers together
+my_speakers_words <- bind_rows(Tandon_words, Brynjolfsson_words)
+```
+
+```{r}
+nrc <- get_sentiments("nrc")
+```
+
+```{r}
+nrc_sentiment <- my_speakers_words %>%
+  dplyr::left_join(nrc, by = "word", copy = TRUE, multiple = "all") %>%
+  dplyr::group_by(speaker) %>%
+  dplyr::summarise(
+    sentiment_score = sum(ifelse(sentiment == "positive", 1, 
+                                 ifelse(sentiment == "negative", -1, 0)), na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+#### visual display of speakers sentiment score
+```{r}
+ggplot(nrc_sentiment, aes(x = speaker, y = sentiment_score)) +
+  geom_bar(stat = "identity", fill = "purple") +
+  xlab("Speaker") + ylab("Sentiment Score") +
+  ggtitle("Sentiment Scores by Speaker")
+
+```
+ visual display of speakers sentiment score
+```{r}
+my_speakers_words %>%
+  inner_join(get_sentiments("nrc"), by = "word", multiple = "all")
+
+```
+
+Sentiment Counts per each speaker
+```{r}
+my_speakers_words %>%
+  inner_join(get_sentiments("nrc"), by = "word", multiple = "all") %>%
+  count(speaker, sentiment) %>%
+  pivot_wider(names_from = speaker, values_from = n, values_fill = 0)
+```
+
+Speakers sentiment odds ratios
+```{r}
+my_speakers_words %>%
+  inner_join(get_sentiments("nrc"), by = "word", multiple = "all") %>%
+  count(speaker, sentiment) %>%
+  pivot_wider(names_from = speaker, values_from = n, values_fill = 0) %>%
+  mutate(OR = dsEssex::compute_OR(`Erik Brynjolfsson`, `Nina Tandon`, correction = FALSE), log_OR = log(OR), sentiment = reorder(sentiment, log_OR))
+
+```
+
+sentiment analysis using nrc lexicon and Log Odd Ratios of Sentiment use by the
+two speakers
+```{r}
+my_speakers_words %>%
+  inner_join(get_sentiments("nrc"), by = "word",multiple = "all") %>%
+  count(speaker, sentiment) %>%
+  pivot_wider(names_from = speaker, values_from = n, values_fill = 0) %>%
+  mutate(OR = dsEssex::compute_OR(`Nina Tandon`, `Erik Brynjolfsson`, correction = FALSE), log_OR = log(OR), sentiment = reorder(sentiment, log_OR)) %>%
+  ggplot(aes(sentiment, log_OR, fill = log_OR < 0)) +
+  geom_col(show.legend = FALSE) +
+  ylab("Log odds ratio") + ggtitle("The association between sentimant and speaker's talk") +
+  coord_flip() + 
+  scale_fill_manual(name = "", values = c("darkorange", "purple"))
+```
+
+The log_OR ratio shows that they has higher numbers of negative words than
+that of the positive words 
+
+## Summary(my_speakers_words)
+```{r}
+summary(my_speakers_words)
+```
+
+## conclusion
+
+The result of the analysis show that the two speakers have different subject
+matters which is reflected in their sentiment and their use of language.
+
+Erik Brynjolfsson repeated the word like many times as the word was used to 
+describe and relate technology and growth to some words like mind,brain,idea
+and that makes him has the  highest number of positive words and he frequently
+used the word jeopardy to let us know that Growth is not dead as his topic
+implies and this made him to have the highest number of  negative words While
+Nina Tandon has like has her highest positive words too as she 
+used it to relate cells to different sense of organs and life in general
+and she she has the lowest number of negative words because most of the 
+negative words was said just once.
+
